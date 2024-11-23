@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
 import mqtt from '@taoqf/react-native-mqtt';
 
 const useWalkingLocationSharing = (userId: string) => {
+  const [nearbyUsers, setNearbyUsers] = useState([]);
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
@@ -31,6 +33,29 @@ const useWalkingLocationSharing = (userId: string) => {
         console.log('Connected to MQTT broker');
         // Notify others of presence
         client.publish(`presence/user/${userId}`, 'online', { qos: 1 });
+
+        // Subscribe to the nearby users topic
+        const nearbyTopic = `location/nearby/${userId}`;
+        client.subscribe(nearbyTopic, { qos: 1 }, (err) => {
+          if (err) {
+            console.error(`Failed to subscribe to ${nearbyTopic}:`, err);
+          } else {
+            console.log(`Subscribed to ${nearbyTopic}`);
+          }
+        });
+
+        // Handle incoming messages
+        client.on('message', (topic, message) => {
+          if (topic === `location/nearby/${userId}`) {
+            try {
+              const parsedMessage = JSON.parse(message.toString());
+              console.log('Received nearby users:', parsedMessage);
+              setNearbyUsers(parsedMessage); // Update the state with the nearby users
+            } catch (err) {
+              console.error('Error parsing message:', err);
+            }
+          }
+        });
 
         // Start sending periodic location updates
         interval = setInterval(async () => {
@@ -66,6 +91,8 @@ const useWalkingLocationSharing = (userId: string) => {
 
     initialize();
   }, [userId]);
+
+  return nearbyUsers; // Return the nearby users to the component
 };
 
 export default useWalkingLocationSharing;
