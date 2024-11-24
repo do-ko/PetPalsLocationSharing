@@ -1,98 +1,158 @@
-import { useEffect, useState } from 'react';
-import * as Location from 'expo-location';
-import mqtt from '@taoqf/react-native-mqtt';
+import { useEffect, useState } from "react";
+import * as Location from "expo-location";
+import mqtt from "@taoqf/react-native-mqtt";
 
-const useWalkingLocationSharing = (userId: string) => {
-  const [nearbyUsers, setNearbyUsers] = useState([]);
+/**
+ * Custom hook to manage walking location sharing with MQTT.
+ *
+ * @param isWalking - Indicates if the user is currently walking.
+ * @param userId - The user ID to associate with the walk session.
+ * @returns [nearbyUsers, startWalk, endWalk] - Nearby users list and control functions.
+ */
+const useWalkingLocationSharing = (
+    isWalking: boolean,
+    userId: string
+): [any[], () => Promise<void>, () => void] => {
+  const [nearbyUsers, setNearbyUsers] = useState<any[]>([]);
+  const [mqttClient, setMqttClient] = useState<any>(null);
+  const [lastLocation, setLastLocation] = useState<any>(null);
+  const [locationSubscription, setLocationSubscription] = useState<any>(null);
+  const distanceThreshold = 10; // Threshold in meters
+  const timeThreshold = 5000; // Minimum interval between messages in milliseconds
+  let lastSentTimestamp = 0;
 
+  // Initialize MQTT connection
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    const client = mqtt.connect("wss://62547b40ec024d1099d2aae7fe842f47.s1.eu.hivemq.cloud:8884/mqtt", {
+      username: "pet-pals-mqtt",
+      password: "Password123",
+      clientId: `walking-client-${userId}`,
+    });
 
-    const initialize = async () => {
-      // Request location permissions
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.error('Location permission not granted');
-        return;
+    client.on("connect", () => {
+      console.log("Connected to MQTT broker");
+    });
+
+    client.on("message", (topic, message) => {
+      if (topic === `location/nearby/${userId}`) {
+        try {
+          const parsedMessage = JSON.parse(message.toString());
+          setNearbyUsers(parsedMessage);
+        } catch (err) {
+          console.error("Error parsing message:", err);
+        }
       }
+    });
 
-      // Connect to MQTT broker
-      const client = mqtt.connect('wss://62547b40ec024d1099d2aae7fe842f47.s1.eu.hivemq.cloud:8884/mqtt', {
-        username: 'pet-pals-mqtt', // Replace with HiveMQ username
-        password: 'Password123', // Replace with HiveMQ password
-        clientId: `walking-client-${userId}`,
-        will: {
-          topic: `presence/user/${userId}`,
-          payload: 'offline',
-          qos: 1,
-          retain: false,
-        },
-      });
+    client.on("error", (err) => {
+      console.error("MQTT connection error:", err);
+    });
 
-      client.on('connect', () => {
-        console.log('Connected to MQTT broker');
-        // Notify others of presence
-        client.publish(`presence/user/${userId}`, 'online', { qos: 1 });
+    client.on("close", () => {
+      console.log("Disconnected from MQTT broker");
+    });
 
-        // Subscribe to the nearby users topic
-        const nearbyTopic = `location/nearby/${userId}`;
-        client.subscribe(nearbyTopic, { qos: 1 }, (err) => {
-          if (err) {
-            console.error(`Failed to subscribe to ${nearbyTopic}:`, err);
-          } else {
-            console.log(`Subscribed to ${nearbyTopic}`);
-          }
-        });
+    setMqttClient(client);
 
-        // Handle incoming messages
-        client.on('message', (topic, message) => {
-          if (topic === `location/nearby/${userId}`) {
-            try {
-              const parsedMessage = JSON.parse(message.toString());
-              console.log('Received nearby users:', parsedMessage);
-              setNearbyUsers(parsedMessage); // Update the state with the nearby users
-            } catch (err) {
-              console.error('Error parsing message:', err);
-            }
-          }
-        });
+    return () => {
+      client.end();
+    };
+  }, [userId]);
 
-        // Start sending periodic location updates
-        interval = setInterval(async () => {
-          try {
-            const location = await Location.getCurrentPositionAsync({});
+  const startWalk = async () => {
+    if (!mqttClient || locationSubscription) return;
+
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      console.error("Location permission not granted");
+      return;
+    }
+
+    // Subscribe to nearby users topic
+    mqttClient.subscribe(`location/nearby/${userId}`, { qos: 1 });
+    mqttClient.publish(
+        `walk/start/${userId}`,
+        JSON.stringify({ timestamp: new Date().toISOString() }),
+        { qos: 1 }
+    );
+
+    // Watch location and publish only when it changes significantly
+    const subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, timeInterval: 1000, distanceInterval: 5 },
+        (location) => {
+          const currentTimestamp = Date.now();
+
+          if (
+              !lastLocation ||
+              (calculateDistance(
+                      lastLocation.latitude,
+                      lastLocation.longitude,
+                      location.coords.latitude,
+                      location.coords.longitude
+                  ) > distanceThreshold &&
+                  currentTimestamp - lastSentTimestamp > timeThreshold)
+          ) {
+            const isoTimestamp = new Date(location.timestamp).toISOString();
             const payload = JSON.stringify({
               latitude: location.coords.latitude,
               longitude: location.coords.longitude,
-              timestamp: location.timestamp,
+              timestamp: isoTimestamp,
             });
 
-            client.publish(`location/user/${userId}`, payload, { qos: 1 });
-            console.log(`Published location: ${payload}`);
-          } catch (err) {
-            console.error('Error fetching or publishing location:', err);
+            mqttClient.publish(`location/user/${userId}`, payload, { qos: 1 });
+            setLastLocation(location.coords);
+            lastSentTimestamp = currentTimestamp; // Update last sent timestamp
+            console.log("Location updated and sent:", payload);
           }
-        }, 5000); // Send location every 5 seconds
-      });
+        }
+    );
 
-      client.on('error', (err) => {
-        console.error('MQTT connection error:', err);
-      });
+    setLocationSubscription(subscription);
+  };
 
-      client.on('close', () => {
-        console.log('Disconnected from MQTT broker');
-      });
+  const endWalk = () => {
+    if (mqttClient) {
+      mqttClient.publish(
+          `walk/end/${userId}`,
+          JSON.stringify({ timestamp: new Date().toISOString() }),
+          { qos: 1 }
+      );
+      mqttClient.unsubscribe(`location/nearby/${userId}`);
+    }
 
-      return () => {
-        if (interval) clearInterval(interval);
-        client.end(); // Clean up the MQTT client
-      };
-    };
+    // Clear location subscription
+    if (locationSubscription) {
+      locationSubscription.remove();
+      setLocationSubscription(null);
+    }
 
-    initialize();
-  }, [userId]);
+    setNearbyUsers([]); // Clear nearby users list
+    setLastLocation(null); // Reset last location
+    console.log("Walk ended and nearby users cleared.");
+  };
 
-  return nearbyUsers; // Return the nearby users to the component
+  // Function to calculate Haversine distance
+  const calculateDistance = (
+      lat1: number,
+      lon1: number,
+      lat2: number,
+      lon2: number
+  ): number => {
+    const R = 6371e3; // Earth's radius in meters
+    const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in meters
+  };
+
+  return [nearbyUsers, startWalk, endWalk];
 };
 
 export default useWalkingLocationSharing;

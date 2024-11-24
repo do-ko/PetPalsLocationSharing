@@ -1,10 +1,25 @@
-import React from 'react';
-import { Text, View, FlatList, StyleSheet } from 'react-native';
+import React, { useState } from "react";
+import { Text, View, FlatList, StyleSheet, TextInput, Button } from "react-native";
 import useWalkingLocationSharing from "@/hooks/useWalkingLocationSharing";
 
 export default function Layout() {
-    // Get the nearby users from the hook
-    const nearbyUsers = useWalkingLocationSharing("userId");
+    const [userId, setUserId] = useState<string>("");
+    const [isWalking, setIsWalking] = useState<boolean>(false);
+    const [nearbyUsers, startWalk, endWalk] = useWalkingLocationSharing(isWalking, userId);
+
+    const handleStartWalk = async () => {
+        if (!userId) {
+            alert("Please enter a valid User ID.");
+            return;
+        }
+        setIsWalking(true);
+        await startWalk();
+    };
+
+    const handleEndWalk = () => {
+        setIsWalking(false);
+        endWalk();
+    };
 
     const renderItem = ({ item }: { item: any }) => (
         <View style={styles.item}>
@@ -18,7 +33,20 @@ export default function Layout() {
 
     return (
         <View style={styles.container}>
-            <Text style={styles.header}>Nearby Users</Text>
+            {!isWalking ? (
+                <View>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Enter User ID"
+                        value={userId}
+                        onChangeText={setUserId}
+                    />
+                    <Button title="Start Walk" onPress={handleStartWalk} />
+                </View>
+            ) : (
+                <Button title="End Walk" onPress={handleEndWalk} />
+            )}
+
             <FlatList
                 data={nearbyUsers}
                 keyExtractor={(item) => item.userId}
@@ -34,10 +62,12 @@ const styles = StyleSheet.create({
         padding: 16,
         backgroundColor: "#fff",
     },
-    header: {
-        fontSize: 20,
-        fontWeight: "bold",
-        marginBottom: 16,
+    input: {
+        height: 40,
+        borderColor: "gray",
+        borderWidth: 1,
+        marginBottom: 10,
+        paddingHorizontal: 8,
     },
     item: {
         padding: 12,
