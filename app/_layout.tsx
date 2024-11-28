@@ -1,13 +1,28 @@
 import React, { useState } from "react";
-import { Text, View, FlatList, StyleSheet, TextInput, Button } from "react-native";
+import { Text, View, FlatList, StyleSheet, TextInput, Button, TouchableOpacity } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import useWalkingLocationSharing from "@/hooks/useWalkingLocationSharing";
 
 export default function Layout() {
     const [userId, setUserId] = useState<string>("");
+    const [dogIds, setDogIds] = useState<string[]>([]);
+    const [newDogId, setNewDogId] = useState<string>(""); // For adding new dog IDs
     const [isWalking, setIsWalking] = useState<boolean>(false);
     const [visibility, setVisibility] = useState<string>("PUBLIC"); // Default visibility
-    const [nearbyUsers, startWalk, endWalk] = useWalkingLocationSharing(isWalking, userId);
+    const [nearbyUsers, startWalk, endWalk] = useWalkingLocationSharing(isWalking, userId, dogIds);
+
+    const handleAddDogId = () => {
+        if (newDogId.trim() && !dogIds.includes(newDogId)) {
+            setDogIds((prev) => [...prev, newDogId]);
+            setNewDogId(""); // Clear the input field
+        } else {
+            alert("Invalid or duplicate Dog ID.");
+        }
+    };
+
+    const handleRemoveDogId = (id: string) => {
+        setDogIds((prev) => prev.filter((dogId) => dogId !== id));
+    };
 
     const handleStartWalk = async () => {
         if (!userId) {
@@ -23,7 +38,16 @@ export default function Layout() {
         endWalk();
     };
 
-    const renderItem = ({ item }: { item: any }) => (
+    const renderDogId = ({ item }: { item: string }) => (
+        <View style={styles.dogItem}>
+            <Text style={styles.text}>{item}</Text>
+            <TouchableOpacity onPress={() => handleRemoveDogId(item)}>
+                <Text style={styles.removeText}>Remove</Text>
+            </TouchableOpacity>
+        </View>
+    );
+
+    const renderNearbyUser = ({ item }: { item: any }) => (
         <View style={styles.item}>
             <Text style={styles.text}>User ID: {item.userId}</Text>
             <Text style={styles.text}>
@@ -43,6 +67,19 @@ export default function Layout() {
                         value={userId}
                         onChangeText={setUserId}
                     />
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Enter Dog ID"
+                        value={newDogId}
+                        onChangeText={setNewDogId}
+                    />
+                    <Button title="Add Dog ID" onPress={handleAddDogId} />
+                    <FlatList
+                        data={dogIds}
+                        keyExtractor={(item) => item}
+                        renderItem={renderDogId}
+                        style={styles.dogList}
+                    />
                     <Picker
                         selectedValue={visibility}
                         onValueChange={(itemValue) => setVisibility(itemValue)}
@@ -61,7 +98,7 @@ export default function Layout() {
             <FlatList
                 data={nearbyUsers}
                 keyExtractor={(item) => item.userId}
-                renderItem={renderItem}
+                renderItem={renderNearbyUser}
             />
         </View>
     );
@@ -83,6 +120,23 @@ const styles = StyleSheet.create({
     picker: {
         height: 50,
         marginBottom: 10,
+    },
+    dogList: {
+        marginBottom: 10,
+    },
+    dogItem: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: 8,
+        borderWidth: 1,
+        borderColor: "#ddd",
+        borderRadius: 8,
+        marginBottom: 5,
+    },
+    removeText: {
+        color: "red",
+        fontSize: 14,
     },
     item: {
         padding: 12,

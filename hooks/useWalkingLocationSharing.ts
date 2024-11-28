@@ -4,7 +4,8 @@ import * as Location from "expo-location";
 
 const useWalkingLocationSharing = (
     isWalking: boolean,
-    userId: string
+    userId: string,
+    dogIds: string[]
 ): [any[], (visibility: string) => Promise<void>, () => void] => {
     const [nearbyUsers, setNearbyUsers] = useState<any[]>([]);
     const [mqttClient, setMqttClient] = useState<any>(null);
@@ -67,7 +68,7 @@ const useWalkingLocationSharing = (
         mqttClient.subscribe(`location/nearby/${userId}`, {qos: 1});
         mqttClient.publish(
             `walk/start/${userId}`,
-            JSON.stringify({timestamp: new Date().toISOString(), visibility}), // Include visibility in the payload
+            JSON.stringify({timestamp: new Date().toISOString(), visibility, dogIds}), // Include visibility in the payload
             {qos: 1}
         );
 
