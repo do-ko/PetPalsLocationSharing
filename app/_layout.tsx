@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { Text, View, FlatList, StyleSheet, TextInput, Button } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import useWalkingLocationSharing from "@/hooks/useWalkingLocationSharing";
 
 export default function Layout() {
     const [userId, setUserId] = useState<string>("");
     const [isWalking, setIsWalking] = useState<boolean>(false);
+    const [visibility, setVisibility] = useState<string>("PUBLIC"); // Default visibility
     const [nearbyUsers, startWalk, endWalk] = useWalkingLocationSharing(isWalking, userId);
 
     const handleStartWalk = async () => {
@@ -13,7 +15,7 @@ export default function Layout() {
             return;
         }
         setIsWalking(true);
-        await startWalk();
+        await startWalk(visibility); // Pass the selected visibility
     };
 
     const handleEndWalk = () => {
@@ -41,6 +43,15 @@ export default function Layout() {
                         value={userId}
                         onChangeText={setUserId}
                     />
+                    <Picker
+                        selectedValue={visibility}
+                        onValueChange={(itemValue) => setVisibility(itemValue)}
+                        style={styles.picker}
+                    >
+                        <Picker.Item label="Public" value="PUBLIC" />
+                        <Picker.Item label="Private" value="PRIVATE" />
+                        <Picker.Item label="Friends Only" value="FRIENDS_ONLY" />
+                    </Picker>
                     <Button title="Start Walk" onPress={handleStartWalk} />
                 </View>
             ) : (
@@ -68,6 +79,10 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         marginBottom: 10,
         paddingHorizontal: 8,
+    },
+    picker: {
+        height: 50,
+        marginBottom: 10,
     },
     item: {
         padding: 12,
